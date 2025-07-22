@@ -1,0 +1,976 @@
+<?php
+require 'conn.php';
+
+session_start();
+
+// Check if this is an AJAX request
+if(isset($_GET['ajax'])) {
+    header('Content-Type: application/json');
+    
+    if ($_GET['ajax'] == 'getTimer') {
+        try {
+            // Get current timer value for all users
+            $sql = "SELECT timmer FROM usersdata LIMIT 1";
+            $result = mysqli_query($conn, $sql);
+            
+            if (!$result) {
+                throw new Exception("Database error: " . mysqli_error($conn));
+            }
+            
+            $row = mysqli_fetch_assoc($result);
+            
+            echo json_encode([
+                'success' => true,
+                'timer' => $row['timmer'] ?? 30,
+                'serverTime' => time() // Current server timestamp
+            ]);
+        } catch (Exception $e) {
+            echo json_encode([
+                'success' => false,
+                'error' => $e->getMessage()
+            ]);
+        }
+        exit();
+    }
+    
+    if (isset($_SESSION['login']) && $_SESSION['login'] == true) {
+        $number = $_SESSION['number'];
+        $password = $_SESSION['password'];
+
+        if ($_GET['ajax'] == 'getUserData') {
+            try {
+                $sqlfetch = "SELECT balance FROM usersdata WHERE number=? AND password=?";
+                $stmt = mysqli_prepare($conn, $sqlfetch);
+                mysqli_stmt_bind_param($stmt, "ss", $number, $password);
+                mysqli_stmt_execute($stmt);
+                $result = mysqli_stmt_get_result($stmt);
+
+                if (mysqli_num_rows($result) > 0) {
+                    $row = mysqli_fetch_assoc($result);
+                    echo json_encode([
+                        'success' => true,
+                        'balance' => $row['balance']
+                    ]);
+                } else {
+                    throw new Exception('Invalid credentials');
+                }
+            } catch (Exception $e) {
+                echo json_encode([
+                    'success' => false,
+                    'error' => $e->getMessage()
+                ]);
+            }
+            exit();
+        }
+    } else {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Session expired'
+        ]);
+        exit();
+    }
+}
+
+// Handle POST requests
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    header('Content-Type: application/json');
+    
+    if (!isset($_SESSION['login'])) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Session expired'
+        ]);
+        exit();
+    }
+
+    $number = $_SESSION['number'];
+    $password = $_SESSION['password'];
+    $action = $_POST['action'] ?? '';
+
+    try {
+        // Verify user credentials first
+        $sql = "SELECT balance FROM usersdata WHERE number=? AND password=?";
+        $stmt = mysqli_prepare($conn, $sql);
+        mysqli_stmt_bind_param($stmt, "ss", $number, $password);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        
+        if (mysqli_num_rows($result) == 0) {
+            throw new Exception('Invalid credentials');
+        }
+
+        $user = mysqli_fetch_assoc($result);
+        $balance = floatval($user['balance']);
+
+        if ($action == 'placeBet') {
+            $betAmount = floatval($_POST['betAmount'] ?? 0);
+            $color = $_POST['color'] ?? '';
+            
+            if ($betAmount <= 0 || $betAmount > $balance) {
+                throw new Exception('Invalid bet amount');
+            }
+            
+            if (!in_array($color, ['red', 'green', 'violet'])) {
+                throw new Exception('Invalid color selection');
+            }
+            
+            $newBalance = $balance - $betAmount;
+            $updateSql = "UPDATE usersdata SET balance = ? WHERE number=? AND password=?";
+            $stmt = mysqli_prepare($conn, $updateSql);
+            mysqli_stmt_bind_param($stmt, "dss", $newBalance, $number, $password);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                echo json_encode([
+                    'success' => true,
+                    'newBalance' => $newBalance
+                ]);
+            } else {
+                throw new Exception('Database error');
+            }
+        } 
+        elseif ($action == 'processWin') {
+            $winAmount = floatval($_POST['winAmount'] ?? 0);
+            
+            if ($winAmount <= 0) {
+                throw new Exception('Invalid win amount');
+            }
+            
+            $newBalance = $balance + $winAmount;
+            $updateSql = "UPDATE usersdata SET balance = ? WHERE number=? AND password=?";
+            $stmt = mysqli_prepare($conn, $updateSql);
+            mysqli_stmt_bind_param($stmt, "dss", $newBalance, $number, $password);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                echo json_encode([
+                    'success' => true,
+                    'newBalance' => $newBalance
+                ]);
+            } else {
+                throw new Exception('Database error');
+            }
+        }
+        elseif ($action == 'updateTimer') {
+            $newTime = intval($_POST['newTime'] ?? 30);
+            
+            if ($newTime <= 0) {
+                throw new Exception('Invalid timer value');
+            }
+            
+            $updateSql = "UPDATE usersdata SET timmer = ?";
+            $stmt = mysqli_prepare($conn, $updateSql);
+            mysqli_stmt_bind_param($stmt, "i", $newTime);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                echo json_encode([
+                    'success' => true
+                ]);
+            } else {
+                throw new Exception('Database error');
+            }
+        }
+        elseif ($action == 'resetTimer') {
+            $roundTime = 30; // Default round time
+            $updateSql = "UPDATE usersdata SET timmer = ?";
+            $stmt = mysqli_prepare($conn, $updateSql);
+            mysqli_stmt_bind_param($stmt, "i", $roundTime);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                echo json_encode([
+                    'success' => true
+                ]);
+            } else {
+                throw new Exception('Database error');
+            }
+        }
+        else {
+            throw new Exception('Invalid action');
+        }
+    } catch (Exception $e) {
+        echo json_encode([
+            'success' => false,
+            'error' => $e->getMessage()
+        ]);
+    }
+    exit();
+}
+
+// Normal page request continues
+if (!isset($_SESSION['login']) || $_SESSION['login'] != true) {
+    session_destroy();
+    header("location: index.php");
+    exit();
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ColorWin | Color Prediction Game</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <div class="bg-bubble bubble1"></div>
+    <div class="bg-bubble bubble2"></div>
+    <div class="bg-bubble bubble3"></div>
+
+    <nav class="navbar">
+        <button class="menu-btn" id="menuBtn">
+            <i class="fas fa-bars"></i>
+        </button>
+
+        <a href="#" class="logo">
+            <span class="logo-icon">🎨</span>
+            <span>ColorWin</span>
+        </a>
+
+        <div class="wallet-container" id="walletBtn">
+            <i class="fas fa-wallet"></i>
+            <span id="walletAmount">₹10</span>
+        </div>
+    </nav>
+
+    <div class="dropdown-menu" id="dropdownMenu">
+        <!--
+        <a href="#" class="menu-item">
+            <i class="fas fa-user"></i>
+            <span>Profile</span>
+        </a>
+        -->
+        <a href="wallet.php" class="menu-item">
+            <i class="fas fa-wallet"></i>
+            <span>Wallet</span>
+        </a>
+        <!--
+        <a href="#" class="menu-item">
+            <i class="fas fa-history"></i>
+            <span>History</span>
+        </a>
+        -->
+        <a href="Leaderboard.html" class="menu-item">
+            <i class="fas fa-trophy"></i>
+            <span>Leaderboard</span>
+        </a>
+        <a href="support.php" class="menu-item">
+            <i class="fas fa-headset"></i>
+            <span>Support</span>
+        </a>
+        <a href="index.php" class="menu-item logout-item">
+            <i class="fas fa-sign-out-alt"></i>
+            <span>Logout</span>
+        </a>
+    </div>
+
+    <div class="result-popup" id="resultPopup">
+        <div class="result-icon">
+            <i class="fas fa-trophy" id="resultIcon"></i>
+        </div>
+        <h2 class="result-title" id="resultTitle">You Won!</h2>
+        <div class="result-amount" id="resultAmount">+₹500.00</div>
+        <div class="result-details" id="resultDetails">
+            You bet ₹500 on <span class="win-amount">Red</span> and won ₹1000!
+        </div>
+        <button class="result-close" id="resultClose">Continue</button>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>Color Prediction Game</h1>
+            <p class="subtitle">Predict the winning color and win up to 2.4x your bet amount!</p>
+        </div>
+
+        <div class="game-section">
+            <h2 class="section-title">
+                <i class="fas fa-gamepad"></i> Place Your Bet
+            </h2>
+            
+            <div class="timer-section">
+                <div class="timer-display" id="timerDisplay">00:30</div>
+                <div class="timer-bar">
+                    <div class="timer-progress" id="timerProgress"></div>
+                </div>
+                <div class="round-info">Next Round In</div>
+            </div>
+            
+            <div class="color-options">
+                <div class="color-option red" id="redOption" data-color="red">
+                    <div class="color-icon">
+                        <i class="fas fa-square"></i>
+                    </div>
+                    <div class="color-name">Red</div>
+                    <div class="color-multiplier">2.4x Payout</div>
+                </div>
+                
+                <div class="color-option green" id="greenOption" data-color="green">
+                    <div class="color-icon">
+                        <i class="fas fa-square"></i>
+                    </div>
+                    <div class="color-name">Green</div>
+                    <div class="color-multiplier">2.4x Payout</div>
+                </div>
+                
+                <div class="color-option violet" id="violetOption" data-color="violet">
+                    <div class="color-icon">
+                        <i class="fas fa-square"></i>
+                    </div>
+                    <div class="color-name">Violet</div>
+                    <div class="color-multiplier">2.4x Payout</div>
+                </div>
+            </div>
+            
+            <div class="bet-section">
+                <div class="bet-controls">
+                    <input type="number" class="bet-amount" id="betAmount" placeholder="Enter bet amount" value="10">
+                </div>
+                
+                <div class="quick-bet">
+                    <button class="quick-bet-btn" data-amount="10">+10</button>
+                    <button class="quick-bet-btn" data-amount="50">+50</button>
+                    <button class="quick-bet-btn" data-amount="100">+100</button>
+                    <button class="quick-bet-btn" data-amount="500">+500</button>
+                </div>
+            </div>
+            
+            <div class="action-buttons">
+                <button class="bet-btn place-bet" id="placeBetBtn">
+                    <i class="fas fa-coins"></i> Place Bet
+                </button>
+                <button class="bet-btn clear-bet" id="clearBetBtn">
+                    <i class="fas fa-trash"></i> Clear
+                </button>
+            </div>
+        </div>
+        
+        <div class="history-section">
+            <div class="history-title">
+                <h2 class="section-title">
+                    <i class="fas fa-history"></i> Game History
+                </h2>
+                <div class="round-info">Last 5 rounds</div>
+            </div>
+            
+            <div class="history-items" id="historyItems">
+                <!-- History items will be added here dynamically -->
+            </div>
+            
+            <div class="detailed-history">
+                <h3 class="section-title">
+                    <i class="fas fa-list"></i> Your Last 5 Bets
+                </h3>
+                
+                <div id="historyTableContainer">
+                    <table class="history-table" id="historyTable">
+                        <thead>
+                            <tr>
+                                <th>Round</th>
+                                <th>Your Color</th>
+                                <th>Amount</th>
+                                <th>Result</th>
+                                <th>Payout</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <!-- History rows will be added here dynamically -->
+                        </tbody>
+                    </table>
+                    <div class="no-history" id="noHistoryMessage" style="display: none;">
+                        No bets history yet. Place your first bet to see your results here!
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <i class="fas fa-check-circle"></i>
+        <span id="toastMessage">Bet placed successfully!</span>
+    </div>
+
+    <script>
+   document.addEventListener('DOMContentLoaded', function() {
+        // DOM Elements
+        const menuBtn = document.getElementById('menuBtn');
+        const dropdownMenu = document.getElementById('dropdownMenu');
+        const walletBtn = document.getElementById('walletBtn');
+        const walletAmount = document.getElementById('walletAmount');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const timerProgress = document.getElementById('timerProgress');
+        const redOption = document.getElementById('redOption');
+        const greenOption = document.getElementById('greenOption');
+        const violetOption = document.getElementById('violetOption');
+        const betAmount = document.getElementById('betAmount');
+        const placeBetBtn = document.getElementById('placeBetBtn');
+        const clearBetBtn = document.getElementById('clearBetBtn');
+        const historyItems = document.getElementById('historyItems');
+        const historyTableBody = document.getElementById('historyTableBody');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toastMessage');
+        const quickBetBtns = document.querySelectorAll('.quick-bet-btn');
+        const resultPopup = document.getElementById('resultPopup');
+        const resultIcon = document.getElementById('resultIcon');
+        const resultTitle = document.getElementById('resultTitle');
+        const resultAmount = document.getElementById('resultAmount');
+        const resultDetails = document.getElementById('resultDetails');
+        const resultClose = document.getElementById('resultClose');
+        const noHistoryMessage = document.getElementById('noHistoryMessage');
+
+        // Game state
+        let walletBalance = 0;
+        let selectedColor = null;
+        let currentBet = 0;
+        const roundTime = 30; // Fixed round duration in seconds
+        let timeLeft = roundTime;
+        let isBettingOpen = true;
+        let gameInterval;
+        let history = [];
+        let betHistory = [];
+        let hasPlacedBet = false;
+        let serverTimeOffset = 0; // Difference between server and client time
+        let lastTimerValue = 0;
+        let isRoundEnding = false;
+
+        // Initialize game
+        initGame();
+
+        function initGame() {
+            // First sync with server time and get initial timer value
+            syncServerTime().then(() => {
+                // Then load user data
+                fetchUserData();
+                
+                // Start the game timer loop
+                startGameTimer();
+                
+                // Initialize displays
+                updateHistoryDisplay();
+                updateBetHistoryDisplay();
+            });
+        }
+
+        // Synchronize with server time and get initial timer value
+        function syncServerTime() {
+            return fetch('main.php?ajax=getTimer')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success && data.timer !== undefined) {
+                        // Calculate server-client time offset
+                        const clientTime = Math.floor(Date.now() / 1000);
+                        serverTimeOffset = data.serverTime - clientTime;
+                        
+                        // Set initial timer value
+                        const serverTime = getServerTime();
+                        timeLeft = roundTime - (serverTime % roundTime);
+                        lastTimerValue = timeLeft;
+                        
+                        console.log("Timer synced with server. Initial time left:", timeLeft);
+                    } else if (data.error) {
+                        console.error("Error:", data.error);
+                        if (data.error === 'Session expired') {
+                            window.location.href = 'index.php';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error("Failed to sync with server:", error);
+                });
+        }
+
+        // Get current server time
+        function getServerTime() {
+            return Math.floor(Date.now() / 1000) + serverTimeOffset;
+        }
+
+        // Fetch user data (balance)
+        function fetchUserData() {
+            fetch('main.php?ajax=getUserData')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success && data.balance !== undefined) {
+                        walletBalance = parseFloat(data.balance);
+                        updateWalletDisplay();
+                    } else if (data.error) {
+                        console.error("Error:", data.error);
+                        if (data.error === 'Session expired') {
+                            window.location.href = 'index.php';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error("Failed to fetch user data:", error);
+                });
+        }
+
+        // Start the game timer
+        function startGameTimer() {
+            clearInterval(gameInterval);
+            
+            gameInterval = setInterval(() => {
+                const serverTime = getServerTime();
+                timeLeft = roundTime - (serverTime % roundTime);
+                
+                // Detect when round changes (when timer wraps around)
+                if (timeLeft === roundTime && lastTimerValue > 1 && !isRoundEnding) {
+                    isRoundEnding = true;
+                    endRound();
+                } else if (timeLeft < roundTime) {
+                    isRoundEnding = false;
+                }
+                
+                lastTimerValue = timeLeft;
+                updateTimerDisplay();
+                
+                // Update betting availability
+                if (timeLeft <= 3) {
+                    isBettingOpen = false;
+                    placeBetBtn.disabled = true;
+                } else {
+                    isBettingOpen = true;
+                    placeBetBtn.disabled = false;
+                }
+            }, 200); // Update frequently for smooth display
+        }
+
+        // Update timer display
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            
+            const progressPercent = (timeLeft / roundTime) * 100;
+            timerProgress.style.width = `${progressPercent}%`;
+            
+            if (timeLeft <= 5) {
+                timerDisplay.style.color = '#ff4757';
+                timerProgress.style.background = '#ff4757';
+                
+                if (timeLeft <= 3) {
+                    timerDisplay.style.animation = 'shake 0.5s infinite';
+                }
+            } else {
+                timerDisplay.style.color = '#FFD700';
+                timerProgress.style.background = 'linear-gradient(90deg, #6c5ce7, #a29bfe)';
+                timerDisplay.style.animation = '';
+            }
+        }
+
+        // End the current round and start new one
+        function endRound() {
+            const colors = ['red', 'green', 'violet'];
+            const winningColor = colors[Math.floor(Math.random() * colors.length)];
+            
+            // Update history (only one color per round)
+            history.unshift(winningColor);
+            if (history.length > 5) history.pop();
+            updateHistoryDisplay();
+            
+            // Process results if bet was placed
+            if (selectedColor) {
+                if (selectedColor === winningColor) {
+                    const winAmount = currentBet * getPayoutMultiplier(selectedColor);
+                    walletBalance += winAmount;
+                    updateWalletDisplay();
+                    
+                    betHistory.unshift({
+                        color: selectedColor,
+                        amount: currentBet,
+                        result: 'win',
+                        payout: winAmount,
+                        winningColor: winningColor
+                    });
+                    
+                    showResultPopup(true, winAmount, selectedColor, currentBet);
+                    createConfetti();
+                    sendWinToServer(winAmount);
+                } else {
+                    betHistory.unshift({
+                        color: selectedColor,
+                        amount: currentBet,
+                        result: 'lose',
+                        payout: 0,
+                        winningColor: winningColor
+                    });
+                    
+                    showResultPopup(false, 0, selectedColor, currentBet);
+                }
+                
+                updateBetHistoryDisplay();
+            }
+            
+            // Reset for new round
+            selectedColor = null;
+            currentBet = 0;
+            hasPlacedBet = false; // Reset the bet placement flag
+            resetColorSelection();
+            
+            // Reset UI
+            placeBetBtn.disabled = false;
+            placeBetBtn.style.opacity = '1';
+            placeBetBtn.style.cursor = 'pointer';
+            betAmount.value = '';
+        }
+
+        // Get payout multiplier based on color
+        function getPayoutMultiplier(color) {
+            switch(color) {
+                case 'red':
+                case 'green':
+                    return 2.4; // 2.4x payout for red/green
+                case 'violet':
+                    return 4.8; // 4.8x payout for violet
+                default:
+                    return 2.4;
+            }
+        }
+
+        // Update wallet display
+        function updateWalletDisplay() {
+            walletAmount.textContent = `₹${walletBalance.toFixed(2)}`;
+        }
+
+        // Update history display
+        function updateHistoryDisplay() {
+            historyItems.innerHTML = '';
+            
+            if (history.length === 0) {
+                historyItems.textContent = 'No history yet';
+                historyItems.classList.add('empty');
+                return;
+            }
+            
+            historyItems.classList.remove('empty');
+            
+            history.slice(0, 5).forEach(color => {
+                const historyItem = document.createElement('div');
+                historyItem.className = `history-item ${color}`;
+                historyItem.textContent = color.charAt(0).toUpperCase();
+                historyItems.appendChild(historyItem);
+            });
+        }
+
+        // Update bet history display
+        function updateBetHistoryDisplay() {
+            historyTableBody.innerHTML = '';
+            
+            if (betHistory.length === 0) {
+                document.getElementById('historyTable').style.display = 'none';
+                noHistoryMessage.style.display = 'block';
+                return;
+            }
+            
+            document.getElementById('historyTable').style.display = 'table';
+            noHistoryMessage.style.display = 'none';
+            
+            betHistory.slice(0, 5).forEach((bet, index) => {
+                const row = document.createElement('tr');
+                
+                const roundCell = document.createElement('td');
+                roundCell.textContent = index + 1;
+                row.appendChild(roundCell);
+                
+                const colorCell = document.createElement('td');
+                colorCell.textContent = bet.color.charAt(0).toUpperCase() + bet.color.slice(1);
+                colorCell.style.color = bet.color === 'red' ? '#ff4757' : 
+                                        bet.color === 'green' ? '#00b894' : '#6c5ce7';
+                row.appendChild(colorCell);
+                
+                const amountCell = document.createElement('td');
+                amountCell.textContent = `₹${bet.amount.toFixed(2)}`;
+                row.appendChild(amountCell);
+                
+                const resultCell = document.createElement('td');
+                const resultSpan = document.createElement('span');
+                resultSpan.textContent = bet.result === 'win' ? 'Win' : 'Lose';
+                resultSpan.className = bet.result === 'win' ? 'win-amount' : 'loss-amount';
+                resultCell.appendChild(resultSpan);
+                row.appendChild(resultCell);
+                
+                const payoutCell = document.createElement('td');
+                if (bet.result === 'win') {
+                    payoutCell.innerHTML = `<span class="win-amount">+₹${bet.payout.toFixed(2)}</span>`;
+                } else {
+                    payoutCell.innerHTML = `<span class="loss-amount">-₹${bet.amount.toFixed(2)}</span>`;
+                }
+                row.appendChild(payoutCell);
+                
+                const winningColorCell = document.createElement('td');
+                winningColorCell.innerHTML = `<div class="history-item ${bet.winningColor}">${bet.winningColor.charAt(0).toUpperCase()}</div>`;
+                row.appendChild(winningColorCell);
+                
+                historyTableBody.appendChild(row);
+            });
+        }
+
+        // Reset color selection
+        function resetColorSelection() {
+            redOption.classList.remove('selected');
+            greenOption.classList.remove('selected');
+            violetOption.classList.remove('selected');
+        }
+
+        // Show toast notification
+        function showToast(message, type = 'success') {
+            toastMessage.textContent = message;
+            toast.className = 'toast';
+            toast.classList.add(type === 'error' ? 'error' : 'success');
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Create confetti effect
+        function createConfetti() {
+            const colors = ['#ff4757', '#00b894', '#6c5ce7', '#FFD700', '#fd79a8', '#00cec9'];
+            
+            for (let i = 0; i < 100; i++) {
+                const confetti = document.createElement('div');
+                confetti.className = 'confetti';
+                confetti.style.left = `${Math.random() * 100}vw`;
+                confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                confetti.style.width = `${Math.random() * 10 + 5}px`;
+                confetti.style.height = `${Math.random() * 10 + 5}px`;
+                confetti.style.animationDelay = `${Math.random() * 2}s`;
+                confetti.style.opacity = Math.random() + 0.5;
+                
+                document.body.appendChild(confetti);
+                
+                setTimeout(() => {
+                    confetti.remove();
+                }, 3000);
+            }
+        }
+
+        // Show result popup
+        function showResultPopup(isWin, amount, color, betAmount) {
+            resultPopup.className = 'result-popup';
+            resultPopup.classList.add(isWin ? 'win' : 'lose');
+            
+            if (isWin) {
+                resultIcon.className = 'fas fa-trophy';
+                resultTitle.textContent = 'You Won!';
+                resultAmount.textContent = `+₹${amount.toFixed(2)}`;
+                resultDetails.innerHTML = `You bet ₹${betAmount.toFixed(2)} on <span class="win-amount">${color.charAt(0).toUpperCase() + color.slice(1)}</span> and won ₹${amount.toFixed(2)}!`;
+            } else {
+                resultIcon.className = 'fas fa-times-circle';
+                resultTitle.textContent = 'You Lost';
+                resultAmount.textContent = `-₹${betAmount.toFixed(2)}`;
+                resultDetails.innerHTML = `You bet ₹${betAmount.toFixed(2)} on <span class="loss-amount">${color.charAt(0).toUpperCase() + color.slice(1)}</span> and lost.`;
+            }
+            
+            resultPopup.classList.add('show');
+        }
+
+        // Send win to server
+        function sendWinToServer(amount) {
+            const formData = new FormData();
+            formData.append('winAmount', amount);
+            formData.append('action', 'processWin');
+            
+            fetch('main.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if(data.success && data.newBalance !== undefined) {
+                    walletBalance = parseFloat(data.newBalance);
+                    updateWalletDisplay();
+                } else if(data.error === 'Session expired') {
+                    window.location.href = 'index.php';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        // Send bet to server
+        function sendBetToServer(amount, color) {
+            const formData = new FormData();
+            formData.append('betAmount', amount);
+            formData.append('color', color);
+            formData.append('action', 'placeBet');
+            
+            fetch('main.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if(data.success) {
+                    if(data.newBalance !== undefined) {
+                        walletBalance = parseFloat(data.newBalance);
+                        updateWalletDisplay();
+                    }
+                } else {
+                    walletBalance += amount;
+                    updateWalletDisplay();
+                    showToast(data.error || "Bet failed", 'error');
+                    hasPlacedBet = false;
+                    placeBetBtn.disabled = false;
+                    placeBetBtn.style.opacity = '1';
+                    placeBetBtn.style.cursor = 'pointer';
+                    
+                    if(data.error === 'Session expired') {
+                        window.location.href = 'index.php';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                walletBalance += amount;
+                updateWalletDisplay();
+                showToast("Network error", 'error');
+                hasPlacedBet = false;
+                placeBetBtn.disabled = false;
+                placeBetBtn.style.opacity = '1';
+                placeBetBtn.style.cursor = 'pointer';
+            });
+        }
+
+        // Event Listeners
+        menuBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            dropdownMenu.classList.toggle('active');
+            
+            if (dropdownMenu.classList.contains('active')) {
+                menuBtn.innerHTML = '<i class="fas fa-times"></i>';
+                menuBtn.style.transform = 'scale(1.1) rotate(90deg)';
+            } else {
+                menuBtn.innerHTML = '<i class="fas fa-bars"></i>';
+                menuBtn.style.transform = 'scale(1.1) rotate(0)';
+            }
+            
+            setTimeout(() => {
+                menuBtn.style.transform = dropdownMenu.classList.contains('active') 
+                    ? 'scale(1) rotate(90deg)' 
+                    : 'scale(1) rotate(0)';
+            }, 200);
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!menuBtn.contains(event.target) && !dropdownMenu.contains(event.target)) {
+                dropdownMenu.classList.remove('active');
+                menuBtn.innerHTML = '<i class="fas fa-bars"></i>';
+                menuBtn.style.transform = 'scale(1) rotate(0)';
+            }
+        });
+
+        walletBtn.addEventListener('click', () => {
+            walletBtn.style.animation = 'bounce 0.5s ease';
+            setTimeout(() => {
+                walletBtn.style.animation = '';
+            }, 500);
+        });
+
+        redOption.addEventListener('click', () => {
+            if (!isBettingOpen || hasPlacedBet) return;
+            resetColorSelection();
+            redOption.classList.add('selected');
+            selectedColor = 'red';
+        });
+
+        greenOption.addEventListener('click', () => {
+            if (!isBettingOpen || hasPlacedBet) return;
+            resetColorSelection();
+            greenOption.classList.add('selected');
+            selectedColor = 'green';
+        });
+
+        violetOption.addEventListener('click', () => {
+            if (!isBettingOpen || hasPlacedBet) return;
+            resetColorSelection();
+            violetOption.classList.add('selected');
+            selectedColor = 'violet';
+        });
+
+        quickBetBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const amount = parseFloat(this.getAttribute('data-amount'));
+                const current = parseFloat(betAmount.value) || 0;
+                betAmount.value = current + amount;
+            });
+        });
+
+        placeBetBtn.addEventListener('click', () => {
+            const amount = parseFloat(betAmount.value);
+            
+            if (!amount || amount <= 0) {
+                showToast('Please enter a valid bet amount', 'error');
+                return;
+            }
+            
+            if (amount > walletBalance) {
+                showToast('Insufficient balance', 'error');
+                return;
+            }
+            
+            if (!selectedColor) {
+                showToast('Please select a color', 'error');
+                return;
+            }
+            
+            if (hasPlacedBet) {
+                showToast('You can only place one bet per round', 'error');
+                return;
+            }
+            
+            if (!isBettingOpen) {
+                showToast('Betting is closed for this round', 'error');
+                return;
+            }
+            
+            currentBet = amount;
+            walletBalance -= amount;
+            updateWalletDisplay();
+            showToast(`Bet placed: ₹${amount.toFixed(2)} on ${selectedColor}`, 'success');
+            hasPlacedBet = true;
+            
+            sendBetToServer(amount, selectedColor);
+            
+            placeBetBtn.disabled = true;
+            placeBetBtn.style.opacity = '0.7';
+            placeBetBtn.style.cursor = 'not-allowed';
+        });
+
+        clearBetBtn.addEventListener('click', () => {
+            if (!hasPlacedBet) {
+                resetColorSelection();
+                betAmount.value = '';
+                selectedColor = null;
+                currentBet = 0;
+            } else {
+                showToast('Cannot clear bet after placing for this round', 'error');
+            }
+        });
+
+        resultClose.addEventListener('click', () => {
+            resultPopup.classList.remove('show');
+        });
+    });
+</script>
+</body>
+</html>
