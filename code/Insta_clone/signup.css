@@ -1,0 +1,28 @@
+*{
+    margin: 0;
+    padding: 0;
+}
+#body{
+    text-align: center;
+    width: 60vmax;
+    margin-left: auto;
+    margin-right: auto;
+    border: 1px solid blue;
+    margin-top: 30vh;
+}
+.details{
+    height: 5vmin;
+    width: 40vmax;
+    margin-top: 5vh;
+}
+.buttoncl{
+    width: 20vmax;
+    height: 7vmin;
+    margin-top: 5vh;
+    margin-bottom: 10vh;
+    background-color: blue;
+    color: white;
+}
+p{
+    font-size:3.8vmax;
+}

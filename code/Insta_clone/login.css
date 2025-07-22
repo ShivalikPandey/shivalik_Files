@@ -1,0 +1,49 @@
+*{
+    margin: 0;
+    padding: 0;
+}
+h1{
+    margin-top: 5vmax;
+    font-size: 4em;
+}
+#login{
+    text-align: center;
+    font-size: 10px;
+    border:1px solid blue;
+    width: 70vw;
+    margin-left: auto;
+    margin-right: auto;
+    margin-top: 20vh;
+}
+.form{
+    height:4vmax;
+    width: 40vmax;
+}
+#button{
+    height: 8vmin;
+    width: 16vmax;
+    margin: 2vmax;
+    margin-top: 5vmax;
+    background-color: blue;
+    color: white;
+}
+#alertdanger{
+    width: 70vw;
+    text-align:center;
+    background-color: red;
+    margin-left: auto;
+    margin-right: auto;
+    margin-bottom: 50vh;
+    margin-top: 5vh;
+    color: white;
+}
+#alertnormal{
+    width: 60vw;
+    text-align:center;
+    background-color: green;
+    margin-left: auto;
+    margin-right: auto;
+    margin-bottom: 50vh;
+    margin-top: 5vh;
+    color: white;
+}
