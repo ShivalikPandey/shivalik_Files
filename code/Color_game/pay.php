@@ -1,7 +1,8 @@
 <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
 <body onload="payment()">
 <?php
-
+//9
+//0
 $frmData = array(
 
      'order_id' => 'OrderId'.rand(),
@@ -42,8 +43,8 @@ $frmData = array(
                 'Accept: application/json',
                 'x-api-version: 2025-01-01',
                 'Content-Type: application/json',
-                'x-client-id: 954114a0ff3d1f0e57f43ee6f4411459',
-                'x-client-secret: cfsk_ma_prod_2e438dbdff5b3471eb0404501acfb410_d226f890'
+                'x-client-id: 954114a0ff3d1f0e57f43ee6f441145',
+                'x-client-secret: cfsk_ma_prod_2e438dbdff5b3471eb0404501acfb410_d226f89'
             )
         );
 
