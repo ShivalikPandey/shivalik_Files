@@ -1,1 +1,334 @@
+package MailSending_System;
+
+
+import java.util.Random;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.util.Properties;
+import javax.mail.*;
+import javax.mail.internet.*;
+import java.util.Scanner;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.sql.ResultSet; 
+
+// class for connect to jdbc
+class Jdbc{
+	public void insert(String query,String recipient,String subject,String body) {
+		String url = "jdbc:mysql://localhost:3306/mailsender";
+		String user = "root";
+		String password = "Root@123";
+		try {
+			Class.forName("com.mysql.cj.jdbc.Driver");
+            Connection conn = DriverManager.getConnection(url, user, password);
+            PreparedStatement pre=conn.prepareStatement(query);
+            pre.setString(1, recipient);
+            pre.setString(2,subject);
+            pre.setString(3,body);
+            pre.executeUpdate();
+            
+		}
+		catch(ClassNotFoundException e) {
+            System.out.println("class not found");
+		}
+		catch(SQLException e) {
+            System.out.println("Sql error");
+		}
+		catch(Exception e) {
+            System.out.println(e.getMessage());
+		}
+		
+	}
+	
+	public void fetchdata() {
+		String url = "jdbc:mysql://localhost:3306/mailsender";
+		String user = "root";
+		String password = "Root@123";
+		String query="SELECT * FROM emails";
+		try {
+			Class.forName("com.mysql.cj.jdbc.Driver");
+            Connection conn = DriverManager.getConnection(url, user, password);
+            Statement stmt=conn.createStatement();
+            ResultSet result=stmt.executeQuery(query);
+            while(result.next()) {
+            	int id=result.getInt("id");
+            	Timestamp timestamp = result.getTimestamp("sent_at"); 
+                String senderemail=result.getString("sender_email");
+            	String subject=result.getString("subject");
+            	String body=result.getString("body");
+            	
+                System.out.println("ID :  "+id);
+                System.out.println("Date and time at which email sends : "+timestamp);
+                System.out.println("emailid in which mail is send : "+senderemail);
+                System.out.println("subject of mail : "+subject);
+                System.out.println("body of mail : "+body);
+                System.out.println(".............................................................................");
+                System.out.println("");
+                System.out.println("Next data");
+                System.out.println(".............................................................................");
+                System.out.println("");
+            }
+		}
+		catch(ClassNotFoundException e) {
+            System.out.println("class not found");
+		}
+		catch(SQLException e) {
+            System.out.println("Sql error");
+		}
+		catch(Exception e) {
+            System.out.println(e.getMessage());
+		}
+		
+	}
+}
+
+class Mailcode extends Jdbc {
+	
+	// code for send attachment file with text
+    String query="INSERT INTO emails (sender_email,subject,body) VALUES(?,?,?)";
+	public void sendmailAttachment(Scanner sc) {
+		System.out.println("Enter email id in which you want to send mail");
+	    String recipient = sc.next();
+	    int length=recipient.length();
+	    sc.nextLine();
+	   
+	    if (recipient.endsWith("@gmail.com") && length>14) {
+	        System.out.println("Enter subject content of your mail");
+	        String subject = sc.nextLine();
+
+	        System.out.println("Enter body content of your mail");
+	        String body = sc.nextLine();
+
+	        System.out.println("Enter full path of file to attach (e.g., C:\\\\Users\\\\file.txt)");
+	        String filePath = sc.nextLine();
+
+	        java.io.File file = new java.io.File(filePath);
+	        if (!file.exists()) {
+	            System.out.println(" File not found or path is invalid.");
+	        }
+
+	        String host = "smtp.gmail.com";
+	        final String senderEmail = "shouravpandey5721@gmail.com";
+	        final String senderPassword = "psmu znzy ybch svsd";  // App-specific password
+
+	        Properties props = new Properties();
+	        props.put("mail.smtp.auth", "true");
+	        props.put("mail.smtp.starttls.enable", "true");
+	        props.put("mail.smtp.host", host);
+	        props.put("mail.smtp.port", "587");
+
+	        Session session = Session.getInstance(props, new Authenticator() {
+	            protected PasswordAuthentication getPasswordAuthentication() {
+	                return new PasswordAuthentication(senderEmail, senderPassword);
+	            }
+	        });
+
+	        try {
+	            Message message = new MimeMessage(session);
+	            message.setFrom(new InternetAddress(senderEmail));
+	            message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipient));
+	            message.setSubject(subject);
+
+	            // Create message parts
+	            MimeBodyPart textPart = new MimeBodyPart();
+	            textPart.setText(body);
+
+	            MimeBodyPart attachmentPart = new MimeBodyPart();
+	            attachmentPart.attachFile(file); // This may throw IOException
+
+	            Multipart multipart = new MimeMultipart();
+	            multipart.addBodyPart(textPart);
+	            multipart.addBodyPart(attachmentPart);
+
+	            message.setContent(multipart);
+
+	            // Send the message
+	            Transport.send(message);
+	            insert(query,recipient,subject,body);
+	            System.out.println(" Email with attachment sent successfully!");
+	         
+	        } catch (FileNotFoundException e) {
+	            System.out.println(" File not found: " + e.getMessage());
+	        } catch (IOException e) {
+	            System.out.println(" IO error while attaching file: " + e.getMessage());
+	        } catch (MessagingException e) {
+	            System.out.println(" Email sending failed: " + e.getMessage());
+	        } catch (Exception e) {
+	            System.out.println(" Some error occured");
+	        }
+	    } else {
+	        System.out.println(" Invalid email address.try again");
+	    }
+	}
+	// code when admin login
+	
+	public String verfyEmail(Scanner sc) {
+		Random random = new Random();
+		int number = random.nextInt(1000000);
+		String otp = String.format("%06d", number);
+		System.out.println("Enter email id in which you want to send mail verificaton OTP");
+		String recipient = sc.next();
+		//to verify correct email format
+		sc.nextLine();
+	    int length=recipient.length();
+		if(recipient.endsWith("@gmail.com") && length>14) {
+
+			String subject="This mail is for verification your email";
+            String body=otp;
+
+	        // 1. SMTP server info (example: Gmail)
+	        String host = "smtp.gmail.com";
+	        final String senderEmail = "shouravpandey5721@gmail.com";
+	        final String senderPassword = "psmu znzy ybch svsd  ";  // Use app password if 2FA is on
+
+	        // 2. Set email properties
+	        Properties props = new Properties();
+	        props.put("mail.smtp.auth", "true");                // Enable authentication
+	        props.put("mail.smtp.starttls.enable", "true");     // Enable TLS
+	        props.put("mail.smtp.host", host);                  // Set SMTP host
+	        props.put("mail.smtp.port", "587");                 // TLS port
+
+	        // 3. Create a Session with Authenticator
+	        Session session = Session.getInstance(props, new Authenticator() {
+	            protected PasswordAuthentication getPasswordAuthentication() {
+	                return new PasswordAuthentication(senderEmail, senderPassword);
+	            }
+	        });
+
+	        try {
+	            // 4. Create the email message
+	            Message message = new MimeMessage(session);
+	            message.setFrom(new InternetAddress(senderEmail));
+	            message.setRecipients(
+	                Message.RecipientType.TO, InternetAddress.parse(recipient));
+	            message.setSubject(subject);
+	            message.setText(body);
+
+	            // 5. Send the email
+	            Transport.send(message);
+	            insert(query,recipient,subject,body);
+	            System.out.println("Email sent successfully!");
+	            //System.out.println("Email sent successfully!");
+	        } catch (MessagingException e) {
+	            System.out.println(e.getMessage());
+	        }
+	        
+		}
+		else {
+            System.out.println("you have not entered correct mail id try again");
+		}
+		return otp;
+	}
+	
+	
+	//code for send simple text mail
+
+	public void sendmail(Scanner sc) {
+		System.out.println("Enter email id in which you want to send mail");
+		String recipient = sc.next();
+		//to verify correct email format
+		sc.nextLine();
+	    int length=recipient.length();
+		if(recipient.endsWith("@gmail.com") && length>14) {
+
+			System.out.println("Enter subject content of your mail");
+			String subject = sc.nextLine();
+
+			System.out.println("Enter body content of your mail");
+			String body = sc.nextLine();
+
+	        // 1. SMTP server info (example: Gmail)
+	        String host = "smtp.gmail.com";
+	        final String senderEmail = "shouravpandey5721@gmail.com";
+	        final String senderPassword = "psmu znzy ybch svsd  ";  // Use app password if 2FA is on
+
+	        // 2. Set email properties
+	        Properties props = new Properties();
+	        props.put("mail.smtp.auth", "true");                // Enable authentication
+	        props.put("mail.smtp.starttls.enable", "true");     // Enable TLS
+	        props.put("mail.smtp.host", host);                  // Set SMTP host
+	        props.put("mail.smtp.port", "587");                 // TLS port
+
+	        // 3. Create a Session with Authenticator
+	        Session session = Session.getInstance(props, new Authenticator() {
+	            protected PasswordAuthentication getPasswordAuthentication() {
+	                return new PasswordAuthentication(senderEmail, senderPassword);
+	            }
+	        });
+
+	        try {
+	            // 4. Create the email message
+	            Message message = new MimeMessage(session);
+	            message.setFrom(new InternetAddress(senderEmail));
+	            message.setRecipients(
+	                Message.RecipientType.TO, InternetAddress.parse(recipient));
+	            message.setSubject(subject);
+	            message.setText(body);
+
+	            // 5. Send the email
+	            Transport.send(message);
+	            insert(query,recipient,subject,body);
+	            System.out.println("Email sent successfully!");
+	            //System.out.println("Email sent successfully!");
+	        } catch (MessagingException e) {
+	            System.out.println(e.getMessage());
+	        }
+	        
+		}
+		else {
+            System.out.println("you have not entered correct mail id try again");
+		}
+	}
+}
+
+
+public class MailSender {
+    public static void main(String[] args) {
+    	Scanner sc=new Scanner(System.in);
+    	Mailcode mail=new Mailcode();
+        
+        while(true) {
+        	System.out.println("Press 0 for exit ,press 1 for send simple "
+            		+ "text ,2 for text with attachment, 3 for fetch "
+            		+ "data from database, 4 for verify email");
+        	 try {
+         		int mailchoice=sc.nextInt();
+         		if(mailchoice==1){
+         			mail.sendmail(sc);
+         			}
+         		else if(mailchoice==2){
+         			mail.sendmailAttachment(sc);
+         			}
+         		else if(mailchoice==0){
+         			break;
+         			}
+         		else if(mailchoice==3) {
+         			mail.fetchdata();
+         		}
+         		else if(mailchoice==4) {
+         			String otp=mail.verfyEmail(sc);
+         			System.out.println("Enter otp for verify");
+         			String userotp=sc.next();
+         			if(userotp.equals(otp)) {
+             			System.out.println("Otp verification is succesful");
+         			}
+         			else {
+             			System.out.println("Entered otp is incorrect");
+         			}
+         		}
+         		else{
+         			System.out.println("You do not enter correct choice");
+         		}
+             }catch(Exception e) {
+             	System.out.println("You do not enter correct choice");
+             }
+        	 sc.nextLine(); 
+        }
+    	sc.close();
+     	System.out.println("Thank you for use my code");
+    }
 
